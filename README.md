@@ -1,0 +1,2 @@
+sec-addon-offer-notifier
+========================
