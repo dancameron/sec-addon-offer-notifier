@@ -23,7 +23,7 @@ class ON_Metabox {
 
 
 	public static function show_meta_box( $offer, $post, $metabox ) {
-		if (  !ON_Notifications::when_notifications_sent( $post->ID ) == '' ) {
+		if ( ON_Notifications::when_notifications_sent( $post->ID ) == '' ) {
 			printf( '<p><label><input type="checkbox" name="%s"/> %s</label></p><p class="description">%s</p>', self::PUBLISH_OPTION_NAME, gb__( 'Send all "New Offer Published" notifications (including SMS) on update/publish.' ), gb__( 'Cannot be undone. Make sure all locations are selected.' ) );
 		}
 		else {
