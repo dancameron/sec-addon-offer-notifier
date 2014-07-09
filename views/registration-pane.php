@@ -1,3 +1,12 @@
+<?php if ( function_exists('sec_theme_fields') ): ?>
+<fieldset id="gb-account-contact-info">
+	<?php sec_theme_fields( array( 'mobile' => $fields['mobile'] ), 'account_fields' ); ?>
+</fieldset>
+<fieldset id="gb-account-contact-info">
+	<legend><?php sec_e( 'Location Preference' ); ?></legend>
+	<?php sec_theme_fields( array( 'local_preference' => $fields['local_preference'] ), 'account_fields' ); ?>
+</fieldset>
+<?php else: ?>
 <fieldset id="gb-account-contact-info">
 	<table class="collapsable account form-table">
 		<tbody>
@@ -21,4 +30,4 @@
 		</tbody>
 	</table>
 </fieldset>
-<br/>
+<?php endif ?>

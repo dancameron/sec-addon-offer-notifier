@@ -2,9 +2,9 @@
 
 class ON_Notifications extends SEC_Controller {
 
-	const NOTIFICATION_SMS_TYPE = 'gb_sms_suggestion_notification';
-	const NOTIFICATION_TYPE = 'gb_email_suggestion_notification';
-	const NOTIFICATIONS_SENT = 'gb_suggested_notifications_sent_v4h';
+	const NOTIFICATION_SMS_TYPE = 'gb_sms_local_offer_notification';
+	const NOTIFICATION_TYPE = 'gb_email_local_offer_notification';
+	const NOTIFICATIONS_SENT = 'gb_local_offer_notifications_sent_v4h';
 
 	public static function init() {
 
@@ -16,26 +16,28 @@ class ON_Notifications extends SEC_Controller {
 		add_action( 'gb_sa_set_vote', array( get_class(), 'maybe_add_notification_preference' ), 10, 3 );
 
 		// Meta Box
-		add_action( 'gb_suggested_deal_published', array( get_class(), 'maybe_send_notifications' ) );
+		add_action( 'sec_send_notifications_publish', array( get_class(), 'maybe_send_notifications' ) );
 
 	}
 
 	public function register_notification_type( $notifications ) {
 		$notifications[self::NOTIFICATION_SMS_TYPE] = array(
-			'name' => self::__( 'SMS Alert: Suggestion Published' ),
-			'description' => self::__( "Customize the SMS notification that is sent after a suggested deal is published." ),
+			'name' => self::__( 'SMS Alert: New Offer Published' ),
+			'description' => self::__( "Customize the SMS notification that is sent after an offer is published in a user's preferred location." ),
 			'shortcodes' => array( 'date', 'name', 'username', 'site_title', 'site_url', 'deal_url', 'deal_title', 'merchant_name' ),
-			'default_title' => self::__( 'SMS Alert: Suggestion Published' ),
+			'default_title' => self::__( 'SMS Alert: New Offer Published' ),
 			'default_content' => '',
-			'allow_preference' => TRUE
+			'allow_preference' => TRUE,
+			'offer_specific' => FALSE
 		);
 		$notifications[self::NOTIFICATION_TYPE] = array(
-			'name' => self::__( 'E-Mail Alert: Suggestion Published' ),
-			'description' => self::__( "Customize the e-mail notification that is sent after a suggested deal is published." ),
+			'name' => self::__( 'E-Mail Alert: New Offer Published' ),
+			'description' => self::__( "Customize the e-mail notification that is sent after an offer is published in a user's preferred location." ),
 			'shortcodes' => array( 'date', 'name', 'username', 'site_title', 'site_url', 'deal_url', 'deal_title', 'merchant_name' ),
-			'default_title' => self::__( 'Your suggestions have been heard.' ),
+			'default_title' => self::__( 'An offer close to you is available.' ),
 			'default_content' => '',
-			'allow_preference' => TRUE
+			'allow_preference' => TRUE,
+			'offer_specific' => FALSE
 		);
 		return $notifications;
 	}
@@ -52,15 +54,32 @@ class ON_Notifications extends SEC_Controller {
 		return $data['merchant_name'];
 	}
 
-	public function maybe_send_notifications( $suggested_deal ) {
-		$votes = $suggested_deal->get_voters();
-		foreach ( $votes as $user_id => $vote ) {
-			foreach ( $vote as $data ) {
-				self::send_sms_notification( $suggested_deal, $user_id, $data );
-				self::send_notification( $suggested_deal, $user_id, $data );
+	public function maybe_send_notifications( $local_offer_deal ) {
+		$notify_locals = array();
+		$locations = $_POST['tax_input'][gb_get_location_tax_slug()];
+		foreach ( $locations as $location_id ) {
+			$term = get_term_by( 'id', $location_id, gb_get_location_tax_slug() );
+			if ( !is_wp_error( $term ) && isset( $term->slug ) ) {
+				$notify_locals[] = $term->slug;
 			}
 		}
-		update_post_meta( $suggested_deal->get_id(), self::NOTIFICATIONS_SENT, time() );
+
+		$account_ids = array();
+		foreach ( $notify_locals as $local_slug ) {
+			$local_account_ids = SEC_Post_Type::find_by_meta( SEC_Account::POST_TYPE, array(
+				'_'.ON_Account::LOCATION_PREF => $local_slug
+			) );
+			$account_ids = array_merge( $local_account_ids, $account_ids );
+		}
+
+		if ( !empty( $account_ids ) ) {
+			foreach ( $account_ids as $account_id ) {
+				self::send_sms_notification( $local_offer_deal, $account_id );
+				self::send_notification( $local_offer_deal, $account_id );
+			}
+			self::mark_notifications_sent( $local_offer_deal->get_id() );
+		}
+		
 	}
 
 	public function mark_notifications_sent( $deal_id = 0 ) {
@@ -81,55 +100,55 @@ class ON_Notifications extends SEC_Controller {
 	// Notifications //
 	///////////////////
 	
-	public function send_sms_notification( $suggested_deal, $user_id, $vote_data = array() ) {
+	public function send_sms_notification( $local_offer_deal, $account_id ) {
 		// $number
-		$account = SEC_Account::get_instance( $user_id );
-		$number = ON_Registration::get_mobile_number( $account );
+		$account = SEC_Account::get_instance_by_id( $account_id );
+		$user_id = $account->get_user_id();
+		$number = ON_Account::get_mobile_number( $account_id );
 
 		// $message
-		$merchant_id = $suggested_deal->get_merchant_id();
+		$merchant_id = $local_offer_deal->get_merchant_id();
 		$merchant_name = get_the_title( $merchant_id );
 		$data = array(
 				'user_id' => $user_id,
-				'deal' => $suggested_deal,
-				'merchant_name' => $merchant_name,
-				'vote_date' => $vote_data
+				'deal' => $local_offer_deal,
+				'merchant_name' => $merchant_name
 			);
-		$message = Group_Buying_Notifications::get_notification_content( self::NOTIFICATION_SMS_TYPE, $data );
+		$message = SEC_Notifications::get_notification_content( self::NOTIFICATION_SMS_TYPE, '', $data );
 
 		// check if disabled
-		if ( Group_Buying_Notifications::user_disabled_notification( self::NOTIFICATION_SMS_TYPE, $account ) )
+		if ( SEC_Notifications::user_disabled_notification( self::NOTIFICATION_SMS_TYPE, $account ) )
 			return;
 
 		// And send
-		$sms = ON_Twilio::send_sms( $number, $message );
+		//$sms = ON_Twilio::send_sms( $number, $message );
 	}
 
-	public function send_notification( $suggested_deal, $user_id, $vote_data = array() ) {
+	public function send_notification( $local_offer_deal, $account_id, $vote_data = array() ) {
 		// $message
-		$account = SEC_Account::get_instance( $user_id );
-		$merchant_id = $suggested_deal->get_merchant_id();
+		$account = SEC_Account::get_instance_by_id( $account_id );
+		$user_id = $account->get_user_id();
+		$merchant_id = $local_offer_deal->get_merchant_id();
 		$merchant_name = get_the_title( $merchant_id );
 		$data = array(
 				'user_id' => $user_id,
-				'deal' => $suggested_deal,
-				'merchant_name' => $merchant_name,
-				'vote_date' => $vote_data
+				'deal' => $local_offer_deal,
+				'merchant_name' => $merchant_name
 			);
-		$to = Group_Buying_Notifications::get_user_email( $user_id );
+		$to = SEC_Notifications::get_user_email( $user_id );
 
 		// check if disabled
-		if ( Group_Buying_Notifications::user_disabled_notification( self::NOTIFICATION_TYPE, $account ) )
+		if ( SEC_Notifications::user_disabled_notification( self::NOTIFICATION_TYPE, $account ) )
 			return;
 
-		Group_Buying_Notifications::send_notification( self::NOTIFICATION_TYPE, $data, $to );
+		SEC_Notifications::send_notification( self::NOTIFICATION_TYPE, $data, $to );
 	}
 
 	//////////////////////////////
 	// Notification Preference //
 	//////////////////////////////
 	
-	public function maybe_add_notification_preference( $user_id = 0, $suggestion_id = 0, $data = array() ) {
+	public function maybe_add_notification_preference( $user_id = 0, $local_offer_id = 0, $data = array() ) {
 		if ( isset( $data['notification_preference'] ) && $data['notification_preference'] != '' ) {
 			$account_id = SEC_Account::get_account_id_for_user( $user_id );
 			$notifications = get_post_meta( $account_id, '_'.Group_Buying_Notifications::NOTIFICATION_SUB_OPTION, TRUE );

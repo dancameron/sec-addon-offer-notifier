@@ -9,9 +9,6 @@ class Offer_Notifier_Addon extends SEC_Controller {
 	public static function init() {
 
 		// Mobile Number Registration
-		require_once 'ON_Registration.php';
-		ON_Registration::init();
-
 		require_once 'ON_Account.php';
 		ON_Account::init();
 
@@ -26,6 +23,10 @@ class Offer_Notifier_Addon extends SEC_Controller {
 		require_once 'ON_Options.php';
 
 		if ( is_admin() ) {
+
+			require_once 'ON_Metabox.php';
+			ON_Metabox::init();
+
 			ON_Options::init();
 		}
 

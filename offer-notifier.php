@@ -1,10 +1,10 @@
 <?php
 /*
-Plugin Name: Group Buying Addon - Deal Suggestion Advanced
+Plugin Name: Group Buying Addon - Offer Notifier
 Version: 1
-Description: Allow registered users submit a suggested deal, choose a notification method and select a price; allows others to vote on these suggestions. Votes count down to a threshold the admin will set.
+Description: Location based notification system.
 Author: Sprout Venture
-Author URI: http://sproutventure.com/wordpress
+Author URI: http://sproutventure.com/smartecart
 Plugin Author: Dan Cameron
 Text Domain: group-buying
 */
@@ -18,7 +18,7 @@ add_action( 'plugins_loaded', 'gb_suggestions_advanced' );
 function gb_suggestions_advanced() {
 	$gbs_min_version = '4.4';
 	if ( class_exists( 'SEC_Controller' ) && version_compare( Smart_eCart::SEC_VERSION, $gbs_min_version, '>=' ) ) {
-		require_once 'classes/Offer_Notifier_Addon.php.php';
+		require_once 'classes/Offer_Notifier_Addon.php';
 
 		// Hook this plugin into the GBS add-ons controller
 		add_filter( 'gb_addons', array( 'Offer_Notifier_Addon', 'sec_addon' ), 10, 1 );

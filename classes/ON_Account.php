@@ -1,18 +1,18 @@
 <?php
 
-class ON_Registration extends SEC_Controller {
+class ON_Account extends SEC_Controller {
 
 	// List all of your field IDs here as constants
+	const LOCATION_PREF = 'gb_account_fields_local_preference';
 	const MOBILE_NUMBER = 'gb_account_fields_mobile';
 
 	public static function init() {
 
-		// Voting hook, check if mobile number needs to be changed
-		add_action( 'gb_sa_set_vote', array( get_class(), 'maybe_change_number' ), 10, 3 );
+		// Location set
+		add_action( 'gb_set_location_preference', array( get_class(), 'maybe_save_location' ) );
 
 		// registration hooks
 		add_filter( 'gb_account_registration_panes', array( get_class(), 'get_registration_panes' ), 100 );
-		// add_filter( 'gb_validate_account_registration', array( get_class(), 'validate_account_fields' ), 10, 4 );
 		add_action( 'gb_registration', array( get_class(), 'process_registration' ), 50, 5 );
 
 		// Add the options to the account edit screens
@@ -29,10 +29,13 @@ class ON_Registration extends SEC_Controller {
 
 	}
 
-	public function maybe_change_number( $user_id = 0, $suggestion_id = 0, $data = array() ) {
-		if ( isset( $data['mobile_number'] ) && ( strlen( $data['mobile_number'] ) > 7 ) ) {
-			$account_id = SEC_Account::get_account_id_for_user( $user_id );
-			self::set_mobile_number( $account_id, $data['mobile_number'] );
+	public static function maybe_save_location( $location = '', $user_id = 0 ) {
+		if ( is_user_logged_in() ) {
+			if ( !$user_id ) {
+				$user_id = get_current_user_id();
+			}
+			$account = SEC_Account::get_instance( $user_id );
+			self::set_local_pref( $account->get_ID(), $location );
 		}
 	}
 
@@ -44,7 +47,7 @@ class ON_Registration extends SEC_Controller {
 	 */
 	public function reports_columns( $columns ) {
 		// Add as many as you want with their own key that will be used later.
-		$columns['sa_mobile_number'] = self::__( 'Mobile' );
+		$columns['on_mobile_number'] = self::__( 'Mobile' );
 		return $columns;
 	}
 
@@ -59,7 +62,7 @@ class ON_Registration extends SEC_Controller {
 			return $array;
 		}
 		// Add as many as you want with their own matching key from the reports_column
-		$array['sa_mobile_number'] = get_post_meta( $account->get_ID(), '_'.self::MOBILE_NUMBER, TRUE );
+		$array['on_mobile_number'] = get_post_meta( $account->get_ID(), '_'.self::MOBILE_NUMBER, TRUE );
 		return $array;
 	}
 
@@ -71,7 +74,7 @@ class ON_Registration extends SEC_Controller {
 	 */
 	public function reports_account_record( $array, $account ) {
 		// Add as many as you want with their own matching key from the reports_column
-		$array['sa_mobile_number'] = get_post_meta( $account->get_ID(), '_'.self::MOBILE_NUMBER, TRUE );
+		$array['on_mobile_number'] = get_post_meta( $account->get_ID(), '_'.self::MOBILE_NUMBER, TRUE );
 		return $array;
 	}
 
@@ -105,11 +108,15 @@ class ON_Registration extends SEC_Controller {
 	 * @return null
 	 */
 	public static function process_form( Group_Buying_Account $account ) {
+		delete_post_meta( $account->get_ID(), '_'.self::LOCATION_PREF );
 		delete_post_meta( $account->get_ID(), '_'.self::MOBILE_NUMBER );
 		// Copy all of the new fields below, copy the below if it's a basic field.
 		if ( isset( $_POST[self::MOBILE_NUMBER] ) && $_POST[self::MOBILE_NUMBER] != '' ) {
 			// TODO check length and throw and error
 			self::set_mobile_number( $account->get_ID(), $_POST[self::MOBILE_NUMBER] );
+		}
+		if ( isset( $_POST[self::LOCATION_PREF] ) && $_POST[self::LOCATION_PREF] != '' ) {
+			self::set_local_pref( $account->get_ID(), $_POST[self::LOCATION_PREF] );
 		}
 	}
 
@@ -147,6 +154,9 @@ class ON_Registration extends SEC_Controller {
 		if ( isset( $post[self::MOBILE_NUMBER] ) && $post[self::MOBILE_NUMBER] == '' ) {
 			$errors[] = self::__( '"Mobile Number" is required.' );
 		}
+		if ( isset( $post[self::LOCATION_PREF] ) && $post[self::LOCATION_PREF] == '' ) {
+			$errors[] = self::__( '"Location Preference" is required.' );
+		}
 		return $errors;
 	}
 
@@ -171,6 +181,7 @@ class ON_Registration extends SEC_Controller {
 	 * @return array
 	 */
 	private function fields( $account = NULL ) {
+		
 		$fields = array(
 			'mobile' => array(
 				'weight' => 0, // sort order
@@ -178,10 +189,26 @@ class ON_Registration extends SEC_Controller {
 				'type' => 'text', // type of field (e.g. text, textarea, checkbox, etc. )
 				'required' => FALSE, // If this is false then don't validate the post in validate_account_fields
 				'placeholder' => self::__('X-XXX-XXX-XXXX') // the default value
-			),
+			)
 			// add new fields here within the current array.
 		);
-		$fields = apply_filters( 'sa_registration_fields', $fields );
+		$locations = gb_get_locations();
+		$options = array();
+		foreach ( $locations as $location ) {
+			if ( $location->taxonomy == gb_get_location_tax_slug() ) {
+				$options[$location->slug] = $location->name;
+			}
+		}
+		if ( !empty( $locations ) && !is_wp_error( $locations ) ) {
+			$fields['local_preference'] = array(
+				'weight' => 0, // sort order
+				'label' => self::__( 'Location Preference' ), // the label of the field
+				'type' => 'select', // type of field (e.g. text, textarea, checkbox, etc. )
+				'required' => FALSE, // If this is false then don't validate the post in validate_account_fields
+				'options' => $options
+			);
+		}
+		$fields = apply_filters( 'on_registration_fields', $fields );
 		return $fields;
 	}
 
@@ -215,10 +242,27 @@ class ON_Registration extends SEC_Controller {
 				'type' => 'text', // type of field (e.g. text, textarea, checkbox, etc. )
 				'required' => FALSE, // If this is false then don't validate the post in validate_account_fields
 				'placeholder' => 'X-XXX-XXX-XXXX', // the default value
-				'default' => self::get_mobile_number( $account )
-			),
+				'default' => self::get_mobile_number( $account->get_ID() )
+			)
 			// add new fields here within the current array.
 		);
+		$locations = gb_get_locations();
+		$options = array();
+		foreach ( $locations as $location ) {
+			if ( $location->taxonomy == gb_get_location_tax_slug() ) {
+				$options[$location->slug] = $location->name;
+			}
+		}
+		if ( !empty( $locations ) && !is_wp_error( $locations ) ) {
+			$fields['local_preference'] = array(
+				'weight' => 0, // sort order
+				'label' => self::__( 'Location Preference' ) . self::get_local_pref( $account->get_ID() ), // the label of the field
+				'type' => 'select', // type of field (e.g. text, textarea, checkbox, etc. )
+				'required' => FALSE, // If this is false then don't validate the post in validate_account_fields
+				'options' => $options,
+				'default' => self::get_local_pref( $account->get_ID() )
+			);
+		}
 		uasort( $fields, array( get_class(), 'sort_by_weight' ) );
 		$fields = apply_filters( 'invite_only_fields', $fields );
 		return $fields;
@@ -231,7 +275,7 @@ class ON_Registration extends SEC_Controller {
 	private static function _load_view_string( $path, $args ) {
 		ob_start();
 		if ( !empty( $args ) ) extract( $args );
-		@include GB_SUGGESTIONS_ADVANCED_PATH . 'views/'.$path.'.php';
+		@include OFFER_NOTIFIER_PATH . 'views/'.$path.'.php';
 		return ob_get_clean();
 	}
 
@@ -239,7 +283,15 @@ class ON_Registration extends SEC_Controller {
 		update_post_meta( $account_id, '_'.self::MOBILE_NUMBER, $number );
 	}
 
-	public function get_mobile_number( Group_Buying_Account $account ) {
-		return get_post_meta( $account->get_ID(), '_'.self::MOBILE_NUMBER, TRUE );
+	public function get_mobile_number( $account_id ) {
+		return get_post_meta( $account_id, '_'.self::MOBILE_NUMBER, TRUE );
+	}
+
+	public function set_local_pref( $account_id, $location ) {
+		update_post_meta( $account_id, '_'.self::LOCATION_PREF, $location );
+	}
+
+	public function get_local_pref( $account_id ) {
+		return get_post_meta( $account_id, '_'.self::LOCATION_PREF, TRUE );
 	}
 }
